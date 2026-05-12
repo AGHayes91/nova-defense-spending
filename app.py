@@ -38,3 +38,51 @@ def fetch_and_save():
 
 if __name__ == "__main__":
     fetch_and_save()
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+
+# 1. Page Config
+st.set_page_config(page_title="DoD Spending Mockup", layout="wide")
+st.title("🛡️ DoD Spending & Impact: 2019 - 2025")
+st.markdown("---")
+
+# 2. Load Data (SEVERED FEED - Stable for Thursday Meetings)
+try:
+    df_hist = pd.read_csv('defense_trends.csv')
+    df_winners = pd.read_csv('top_winners.csv')
+except FileNotFoundError:
+    st.error("⚠️ Data files not found. Ensure .csv files are uploaded to GitHub.")
+    st.stop()
+
+# --- SECTION 1: NATIONAL GROWTH TREND ---
+st.subheader("📈 National DoD Spending Growth (2019 - 2025)")
+# Visualizing the historical obligated growth
+fig_trend = px.area(
+    df_hist, 
+    x="Year", 
+    y="Amount", 
+    height=350, 
+    color_discrete_sequence=['#1f77b4'],
+    labels={"Amount": "Obligated Amount ($)"}
+)
+st.plotly_chart(fig_trend, use_container_width=True)
+
+st.markdown("---")
+
+# --- SECTION 2: TOP AWARD WINNERS ---
+st.subheader("🏆 Top Award Winners (FY 2024 - 2025)")
+# Federal award data traditionally features major firms like Lockheed Martin or RTX
+fig_winners = px.bar(
+    df_winners, 
+    x='amount', 
+    y='name', 
+    orientation='h', 
+    color='amount',
+    labels={'name': 'Recipient', 'amount': 'Total Award Amount ($)'},
+    color_continuous_scale='Blues',
+    height=500
+)
+st.plotly_chart(fig_winners, use_container_width=True)
+
+st.caption("Data source: USAspending.gov. Note: DoD contract data has a mandatory 90-day reporting delay.")
