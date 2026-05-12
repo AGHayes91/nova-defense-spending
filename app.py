@@ -3,13 +3,9 @@ import requests
 import pandas as pd
 import plotly.express as px
 
-# App Header
-st.set_page_config(page_title="NOVA Defense Spending Tracker", layout="wide")
-st.title("🛡️ DoD Award Impact on Northern Virginia CRE")
-st.markdown("Analyzing FY2026 defense contracts in Arlington, Fairfax, Alexandria, and Loudoun.")
+# ... (Previous header code)
 
-# 1. Fetch Data from USAspending API
-@st.cache_data # Caches data so it doesn't reload on every click
+@st.cache_data
 def get_dod_data():
     url = "https://api.usaspending.gov/api/v2/search/spending_by_award/"
     nova_counties = ["Arlington", "Fairfax", "Loudoun", "Alexandria"]
@@ -23,34 +19,27 @@ def get_dod_data():
             ],
             "award_type_codes": ["A", "B", "C", "D"]
         },
-        "fields": ["Recipient Name", "Award Amount", "Place of Performance County Name", "Description"],
+        # Use more specific field names standard to the API
+        "fields": ["Recipient Name", "Award Amount", "primary_place_of_performance_county_name", "Description"],
         "limit": 100
     }
     response = requests.post(url, json=payload)
-    return pd.DataFrame(response.json()['results'])
+    data = response.json().get('results', [])
+    return pd.DataFrame(data)
 
 df = get_dod_data()
 
-# 2. Sidebar Filters
-st.sidebar.header("Filter Results")
-selected_county = st.sidebar.multiselect("Select Counties", df['Place of Performance County Name'].unique(), default=df['Place of Performance County Name'].unique())
+# SAFETY CHECK: If the column is missing, use a fallback
+county_col = 'primary_place_of_performance_county_name'
+if county_col not in df.columns:
+    # If the API returned a different name, try to find it or use a placeholder
+    potential_cols = [col for col in df.columns if 'county' in col.lower()]
+    county_col = potential_cols[0] if potential_cols else None
 
-filtered_df = df[df['Place of Performance County Name'].isin(selected_county)]
-
-# 3. Visualizations
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("Spending by County")
-    fig_city = px.pie(filtered_df, values='Award Amount', names='Place of Performance County Name', hole=0.4)
-    st.plotly_chart(fig_city)
-
-with col2:
-    st.subheader("Top Contractors")
-    top_contractors = filtered_df.groupby('Recipient Name')['Award Amount'].sum().sort_values(ascending=False).head(10).reset_index()
-    fig_bar = px.bar(top_contractors, x='Award Amount', y='Recipient Name', orientation='h', color='Award Amount')
-    st.plotly_chart(fig_bar)
-
-# 4. Raw Data Display
-st.subheader("Detailed Award List")
-st.dataframe(filtered_df[['Recipient Name', 'Award Amount', 'Place of Performance County Name', 'Description']])
+if county_col:
+    st.sidebar.header("Filter Results")
+    selected_county = st.sidebar.multiselect("Select Counties", df[county_col].unique(), default=df[county_col].unique())
+    filtered_df = df[df[county_col].isin(selected_county)]
+else:
+    st.error("Could not find county data in the API response.")
+    filtered_df = df
