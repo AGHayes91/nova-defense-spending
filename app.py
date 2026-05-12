@@ -3,18 +3,15 @@ import requests
 import pandas as pd
 import plotly.express as px
 
-# 1. Page Configuration
-st.set_page_config(page_title="NOVA Defense Tracker", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="NOVA Defense Tracker", layout="wide")
 st.title("🛡️ DoD Award Impact & Historical Trends")
-st.markdown("Analyzing federal contracts from 2019 to 2026 for Northern Virginia and National trends.")
 
-# 2. Global Settings & API Functions
-BASE_URL = "https://api.usaspending.gov/api/v2/search/"
+# Sidebar - Reliable years
+target_year = st.sidebar.selectbox("Leaderboard Fiscal Year", [2026, 2025, 2024, 2023, 2022], index=2)
 
 @st.cache_data
 def get_historical_trends():
-    """Fetches total DoD obligations by fiscal year (2019-2026)"""
-    url = f"{BASE_URL}spending_over_time/"
+    url = "https://usaspending.gov"
     payload = {
         "group": "fiscal_year",
         "filters": {
@@ -22,86 +19,59 @@ def get_historical_trends():
             "agencies": [{"type": "awarding", "tier": "toptier", "name": "Department of Defense"}]
         }
     }
-    response = requests.post(url, json=payload)
-    if response.status_code != 200: return pd.DataFrame()
-    
-    results = response.json().get('results', [])
-    data = [{"Year": r['time_period']['fiscal_year'], "Amount": float(r['aggregated_amount'])} for r in results]
+    r = requests.post(url, json=payload)
+    results = r.json().get('results', [])
+    data = [{"Year": i['time_period']['fiscal_year'], "Amount": float(i['aggregated_amount'])} for i in results]
     return pd.DataFrame(data).sort_values("Year")
 
-@st.cache_data
-def get_categorical_breakdown(category, year):
-    """Fetches spending by category (recipient, state, or county)"""
-    url = f"{BASE_URL}spending_by_category/"
-    payload = {
-        "category": category,
+# Layout Tabs
+tab1, tab2, tab3 = st.tabs(["📈 Trends", "🏆 Top Winners", "📍 Regional Impact"])
+
+with tab1:
+    df_hist = get_historical_trends()
+    if not df_hist.empty:
+        st.plotly_chart(px.area(df_hist, x="Year", y="Amount", title="DoD Spending 2019-2026"))
+with tab2:
+    st.subheader(f"Top 10 Recipients for FY {target_year}")
+    url_cat = "https://usaspending.gov"
+    payload_cat = {
+        "category": "recipient",
         "filters": {
-            "time_period": [{"start_date": f"{year-1}-10-01", "end_date": f"{year}-09-30"}],
+            "time_period": [{"start_date": f"{target_year-1}-10-01", "end_date": f"{target_year}-09-30"}],
             "agencies": [{"type": "awarding", "tier": "toptier", "name": "Department of Defense"}]
         },
         "limit": 10
     }
-    response = requests.post(url, json=payload)
-    if response.status_code != 200: return pd.DataFrame()
-    return pd.DataFrame(response.json().get('results', []))
+    res_cat = requests.post(url_cat, json=payload_cat)
+    df_winners = pd.DataFrame(res_cat.json().get('results', []))
+    if not df_winners.empty:
+        st.plotly_chart(px.bar(df_winners, x='amount', y='name', orientation='h'))
+with tab3:
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("**National State View**")
+        payload_state = payload_cat.copy()
+        payload_state["category"] = "state"
+        res_state = requests.post(url_cat, json=payload_state)
+        df_state = pd.DataFrame(res_state.json().get('results', []))
+        if not df_state.empty:
+            st.plotly_chart(px.choropleth(df_state, locations='code', locationmode="USA-states", color='amount', scope="usa"))
 
-# 3. Sidebar - Year Control for Leaderboards
-st.sidebar.header("Dashboard Filters")
-target_year = st.sidebar.selectbox("Leaderboard Fiscal Year",, index=2)
-
-# 4. App Tabs
-tab_trend, tab_leader, tab_geo = st.tabs(["📈 Historical Trends", "🏆 Top Winners", "🗺️ Regional Impact"])
-
-with tab_trend:
-    st.subheader("DoD Obligations Over Time (2019–2026)")
-    hist_df = get_historical_trends()
-    if not hist_df.empty:
-        fig = px.area(hist_df, x="Year", y="Amount", title="Total National DoD Spending Growth")
-        st.plotly_chart(fig, use_container_width=True)
-        st.info("Note: FY 2026 data is partially reported as of May 2026.")
-    else:
-        st.error("Could not load historical data.")
-
-with tab_leader:
-    st.subheader(f"Top 10 Award Winners (FY {target_year})")
-    winners_df = get_categorical_breakdown('recipient', target_year)
-    if not winners_df.empty:
-        fig_winners = px.bar(winners_df, x='amount', y='name', orientation='h', 
-                             color='amount', labels={'name': 'Recipient', 'amount': 'Total ($)'})
-        st.plotly_chart(fig_winners, use_container_width=True)
-        st.dataframe(winners_df[['name', 'amount']])
-    else:
-        st.warning("No recipient data found for this year.")
-
-with tab_geo:
-    st.subheader(f"Geographic Spending (FY {target_year})")
-    geo_col1, geo_col2 = st.columns(2)
-    
-    with geo_col1:
-        st.markdown("**By State (USA)**")
-        states_df = get_categorical_breakdown('state', target_year)
-        if not states_df.empty:
-            st.plotly_chart(px.choropleth(states_df, locations='code', locationmode="USA-states", 
-                                          color='amount', scope="usa"), use_container_width=True)
-            
-    with geo_col2:
-        st.markdown("**NOVA Impact (Fairfax, Arlington, Loudoun)**")
-        # Direct VA filter for local analysis
-        payload_va = {
+    with col2:
+        st.write("**Northern Virginia Impact**")
+        nova_counties = ["ARLINGTON", "FAIRFAX", "LOUDOUN", "ALEXANDRIA CITY"]
+        url_award = "https://api.usaspending.gov/api/v2/search/spending_by_award/"
+        payload_nova = {
             "filters": {
                 "time_period": [{"start_date": f"{target_year-1}-10-01", "end_date": f"{target_year}-09-30"}],
                 "place_of_performance_locations": [{"country": "USA", "state": "VA"}],
                 "agencies": [{"type": "awarding", "tier": "toptier", "name": "Department of Defense"}]
             },
-            "fields": ["Recipient Name", "Award Amount", "Place of Performance County", "Description"],
-            "limit": 50
+            "fields": ["Recipient Name", "Award Amount", "Place of Performance County"],
+            "limit": 100
         }
-        res_va = requests.post(f"{BASE_URL}spending_by_award/", json=payload_va)
-        if res_va.status_code == 200:
-            df_va = pd.DataFrame(res_va.json().get('results', []))
-            nova_fips = ["ARLINGTON", "FAIRFAX", "LOUDOUN", "ALEXANDRIA CITY"]
-            df_nova = df_va[df_va['Place of Performance County'].str.upper().isin(nova_fips)] if not df_va.empty else pd.DataFrame()
-            if not df_nova.empty:
-                st.dataframe(df_nova[['Recipient Name', 'Award Amount', 'Place of Performance County']])
-            else:
-                st.write("No major NOVA contracts in the top VA results for this year.")
+        res_nova = requests.post(url_award, json=payload_nova)
+        df_nova_raw = pd.DataFrame(res_nova.json().get('results', []))
+        if not df_nova_raw.empty:
+            df_nova = df_nova_raw[df_nova_raw['Place of Performance County'].str.upper().isin(nova_counties)]
+            st.dataframe(df_nova)
