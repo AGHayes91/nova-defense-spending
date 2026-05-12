@@ -4,13 +4,14 @@ import pandas as pd
 import plotly.express as px
 import time
 
-st.set_page_config(page_title="NOVA Defense Tracker", layout="wide")
+# 1. Page Config
+st.set_page_config(page_title="NOVA Defense Tracker", layout="wide", page_icon="🛡️")
 st.title("🛡️ DoD Award Impact & Historical Trends (2019-2025)")
 
-# 1. Sidebar - Limit to 2025 as the latest complete year
-target_year = st.sidebar.selectbox("Fiscal Year for Details",, index=0)
+# 2. Sidebar - Removed 2026 to ensure data stability
+target_year = st.sidebar.selectbox("Fiscal Year for Details", [2025, 2024, 2023, 2022, 2021, 2020, 2019], index=0)
 
-# 2. Resilient API Fetcher
+# 3. Resilient API Fetcher
 def fetch_usaspending(url, payload):
     try:
         r = requests.post(url, json=payload, timeout=15)
@@ -24,13 +25,12 @@ def fetch_usaspending(url, payload):
 
 tab1, tab2, tab3 = st.tabs(["📈 Historical Trends", "🏆 Top Winners", "📍 Regional Impact"])
 
-# --- TAB 1: HISTORICAL TRENDS (CAPPED AT 2025) ---
+# --- TAB 1: HISTORICAL TRENDS (2019-2025) ---
 with tab1:
     st.subheader("National DoD Spending (2019 - 2025)")
     hist_payload = {
         "group": "fiscal_year",
         "filters": {
-            # End date changed to Sept 30, 2025
             "time_period": [{"start_date": "2018-10-01", "end_date": "2025-09-30"}],
             "agencies": [{"type": "awarding", "tier": "toptier", "name": "Department of Defense"}]
         }
@@ -42,7 +42,11 @@ with tab1:
             {"Year": i['time_period']['fiscal_year'], "Amount": float(i['aggregated_amount'])} 
             for i in hist_data['results']
         ]).sort_values("Year")
+        # Ensure we only show up to 2025
+        df_hist = df_hist[df_hist['Year'].astype(int) <= 2025]
         st.plotly_chart(px.area(df_hist, x="Year", y="Amount", title="DoD Obligations Over Time"), use_container_width=True)
+    else:
+        st.info("Trend data is taking a moment to load. Try refreshing.")
 
 # --- TAB 2: TOP WINNERS ---
 with tab2:
