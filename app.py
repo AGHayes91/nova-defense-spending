@@ -3,12 +3,14 @@ import requests
 import pandas as pd
 import plotly.express as px
 
-# ... (Previous header code)
+st.set_page_config(page_title="NOVA Defense Tracker", layout="wide")
+st.title("🛡️ DoD Award Impact on Northern Virginia")
 
 @st.cache_data
 def get_dod_data():
     url = "https://api.usaspending.gov/api/v2/search/spending_by_award/"
-    nova_counties = ["Arlington", "Fairfax", "Loudoun", "Alexandria"]
+    # Note: Sometimes 'Fairfax' needs to be 'FAIRFAX' or 'Fairfax County'
+    nova_counties = ["ARLINGTON", "FAIRFAX", "LOUDOUN", "ALEXANDRIA"]
     
     payload = {
         "filters": {
@@ -19,27 +21,36 @@ def get_dod_data():
             ],
             "award_type_codes": ["A", "B", "C", "D"]
         },
-        # Use more specific field names standard to the API
-        "fields": ["Recipient Name", "Award Amount", "primary_place_of_performance_county_name", "Description"],
+        "fields": ["Recipient Name", "Award Amount", "Place of Performance County", "Description"],
         "limit": 100
     }
     response = requests.post(url, json=payload)
-    data = response.json().get('results', [])
-    return pd.DataFrame(data)
+    return pd.DataFrame(response.json().get('results', []))
 
 df = get_dod_data()
 
-# SAFETY CHECK: If the column is missing, use a fallback
-county_col = 'primary_place_of_performance_county_name'
-if county_col not in df.columns:
-    # If the API returned a different name, try to find it or use a placeholder
-    potential_cols = [col for col in df.columns if 'county' in col.lower()]
-    county_col = potential_cols[0] if potential_cols else None
-
-if county_col:
-    st.sidebar.header("Filter Results")
-    selected_county = st.sidebar.multiselect("Select Counties", df[county_col].unique(), default=df[county_col].unique())
-    filtered_df = df[df[county_col].isin(selected_county)]
+# --- DEBUG & MAPPING SECTION ---
+if df.empty:
+    st.warning("The API returned no results for FY2026 yet. Try changing the year to 2025 to test.")
 else:
-    st.error("Could not find county data in the API response.")
-    filtered_df = df
+    # Look for ANY column that might contain county information
+    possible_county_cols = [c for c in df.columns if 'county' in c.lower()]
+    
+    if possible_county_cols:
+        target_col = possible_county_cols[0]
+        st.sidebar.success(f"Mapping data using: {target_col}")
+        
+        selected_county = st.sidebar.multiselect(
+            "Select Counties", 
+            df[target_col].unique(), 
+            default=df[target_col].unique()
+        )
+        filtered_df = df[df[target_col].isin(selected_county)]
+        
+        # Display Visuals
+        st.plotly_chart(px.pie(filtered_df, values='Award Amount', names=target_col))
+        st.dataframe(filtered_df)
+    else:
+        st.error("County column missing. Here are the columns we DID find:")
+        st.write(df.columns.tolist())
+        st.write("Raw data sample:", df.head())
